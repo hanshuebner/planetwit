@@ -19,7 +19,11 @@
               (list :guid (child-as-string "guid" item)
                     :title (child-as-string "title" item)))
             (stp:filter-recursively (stp:of-name "item")
-                                    (cxml:parse content (stp:make-builder))))))
+                                    (cxml:parse content
+                                                (stp:make-builder)
+                                                :entity-resolver (lambda (public-id system-id)
+                                                                   (format t "resolve-entity public-id ~S system-id ~S~%" public-id system-id)
+                                                                   (flex:make-in-memory-input-stream #())))))))
 
 (defun shorten-url (url)
   (nth-value 0 (drakma:http-request (format nil "http://tinyurl.com/api-create.php?url=~A"
