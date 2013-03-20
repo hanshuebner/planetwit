@@ -1,8 +1,7 @@
-(dolist (system '(:hunchentoot :drakma :cl-oauth :cxml-stp))
-  (asdf:oos 'asdf:load-op system))
-
 (defpackage :planetwit
-  (:use :cl))
+  (:use :cl)
+  (:export #:*twitter-access-token*
+           #:main))
 
 (in-package :planetwit)
 
@@ -29,7 +28,7 @@
   (nth-value 0 (drakma:http-request (format nil "http://tinyurl.com/api-create.php?url=~A"
                                             (hunchentoot:url-encode url)))))
 
-(defparameter *data-file-name* "planetwit.dat")
+(defparameter *data-file-name* (asdf:system-relative-pathname :planetwit "planetwit.dat"))
 
 (defun save-data (data)
   (with-open-file (f *data-file-name*
@@ -46,13 +45,9 @@
     (when f
       (read f))))
 
-(defparameter *twitter-access-token*
-  (make-instance 'cl-oauth:access-token
-                 :consumer (make-instance 'cl-oauth:consumer-token
-                                          :key "THMeDhHjrdeqsQdjuYppVQ"
-                                          :secret "7A6wISNDVsKGXjh7Cz0oZKIonjuDVVO65Qh0D06VU0")
-                 :key "16486287-lvIolgiqy2sT3qR3YusR8A2gA8pnkk55cCR4NkfVd"
-                 :secret "VzySmgAAngnCXjhR3FhUfljJj6CaYA7dIK9JYazJNs"))
+(defvar *twitter-access-token*)
+(load "access-token.lisp")
+
 (defparameter *twitter-url* "https://api.twitter.com/1/statuses/update.xml")
 
 (defun post-to-twitter (item)

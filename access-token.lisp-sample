@@ -1,0 +1,9 @@
+;; -*- Lisp -*-
+
+(setf planetwit:*twitter-access-token*
+      (make-instance 'cl-oauth:access-token
+                     :consumer (make-instance 'cl-oauth:consumer-token
+                                              :key "XXXXXXXXXXXXXXXXXXXXXX"
+                                              :secret "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX")
+                     :key "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+                     :secret "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"))
