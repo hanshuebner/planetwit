@@ -12,17 +12,17 @@
   (multiple-value-bind (content status headers uri stream close-stream-p reason)
       (drakma:http-request "http://planet.lisp.org/rss20.xml" :external-format-in :utf-8)
     (declare (ignore headers uri stream close-stream-p))
-    (unless (= 200 status)
-      (error "cannot poll planet lisp: status ~A reason ~A" status reason))
-    (mapcar (lambda (item)
-              (list :guid (child-as-string "guid" item)
-                    :title (child-as-string "title" item)))
-            (stp:filter-recursively (stp:of-name "item")
-                                    (cxml:parse content
-                                                (stp:make-builder)
-                                                :entity-resolver (lambda (public-id system-id)
-                                                                   (format t "resolve-entity public-id ~S system-id ~S~%" public-id system-id)
-                                                                   (flex:make-in-memory-input-stream #())))))))
+    (if (= 200 status)
+        (mapcar (lambda (item)
+                  (list :guid (child-as-string "guid" item)
+                        :title (child-as-string "title" item)))
+                (stp:filter-recursively (stp:of-name "item")
+                                        (cxml:parse content
+                                                    (stp:make-builder)
+                                                    :entity-resolver (lambda (public-id system-id)
+                                                                       (format t "resolve-entity public-id ~S system-id ~S~%" public-id system-id)
+                                                                       (flex:make-in-memory-input-stream #())))))
+        (warn "could not get current items from twitter (status ~A)" status))))
 
 (defun shorten-url (url)
   (nth-value 0 (drakma:http-request (format nil "http://tinyurl.com/api-create.php?url=~A"
@@ -83,13 +83,13 @@
          (new-items (set-difference current-data old-data
                                     :key (lambda (item) (getf item :guid))
                                     :test #'equal)))
-    (dolist (item new-items)
-      (handler-case
-          (post-to-twitter item)
-        (error (e)
-          (format t "could not post: ~A" e))))
-    (save-data current-data)
-    t))
+    (when current-data
+      (dolist (item new-items)
+        (handler-case
+            (post-to-twitter item)
+          (error (e)
+            (format t "could not post: ~A" e))))
+      (save-data current-data))))
 
 (defparameter *status-port* 3884)
 
@@ -112,17 +112,12 @@
 
 (defun main ()
   (setf hunchentoot:*show-lisp-errors-p* t)
-  (let ((acceptor (hunchentoot:start (make-instance 'hunchentoot:acceptor
+  (format t "starting hunchentoot~%")
+  (let ((acceptor (hunchentoot:start (make-instance 'hunchentoot:easy-acceptor
                                                     :port *status-port*))))
     (unwind-protect
          (loop
-            (setf *last-poll* (get-universal-time))
-            (handler-case
-                (progn
-                  (poll-planet)
-                  (setf *errors* nil))
-              (error (e)
-                (push (princ-to-string e) *errors*)
-                (format t "Error updating: ~A~%" e)))
-            (sleep 60))
+           (setf *last-poll* (get-universal-time))
+           (poll-planet)
+           (sleep 60))
       (hunchentoot:stop acceptor))))

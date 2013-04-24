@@ -4,5 +4,7 @@
   :depends-on (:hunchentoot
                :drakma
                :cl-oauth
-               :cxml-stp)
-  :components ((:file "planetwit")))
+               :cxml-stp
+               :closure-html)
+  :components ((:file "planetwit")
+               (:file "heise-filter")))
