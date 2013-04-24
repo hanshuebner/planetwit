@@ -9,7 +9,7 @@
 (defvar *next-cache*)
 
 (defun request-article (url)
-  (setf (gethash url *next-cache*)
+  (setf (gethash url (if (boundp '*next-cache*) *next-cache* *article-cache*))
         (or (gethash url *article-cache*)
             (drakma:http-request url))))
 
@@ -19,11 +19,25 @@
          (progn ,@body)
        (setf *article-cache* *next-cache*))))
 
+(defun delete-matching-elements (element xpath)
+  (xpath:do-node-set (element (xpath:evaluate xpath element))
+    (stp:delete-child element (stp:parent element))))
+
 (defun get-article (url)
   (xpath:with-namespaces ((nil "http://www.w3.org/1999/xhtml"))
-    (stp:copy (or (first (xpath:all-nodes (xpath:evaluate "/html/body/div/div[@id='content']"
-                                                          (chtml:parse (request-article url) (stp:make-builder)))))
-                  (error "could not find content div in ~S" url)))))
+    (let ((element (stp:copy (or (first (xpath:all-nodes (xpath:evaluate "/html/body/div/div[@id='content']"
+                                                                         (chtml:parse (request-article url) (stp:make-builder)))))
+                                 (error "could not find content div in ~S" url)))))
+      (delete-matching-elements element "/p[@class='author_date']")
+      (delete-matching-elements element "/h1")
+      (stp:do-recursively (child element)
+        (when (typep child 'stp:element)
+          (flet ((absolutize-url-attribute (attribute-name)
+                   (alexandria:when-let (url (stp:attribute-value child attribute-name))
+                     (setf (stp:attribute-value child attribute-name) (ppcre:regex-replace "^/" url "http://www.heise.de/")))))
+            (absolutize-url-attribute "href")
+            (absolutize-url-attribute "src"))))
+      element)))
 
 (defun get-feed ()
   (cxml:parse (drakma:http-request "http://www.heise.de/tp/news-atom.xml") (stp:make-builder)))
@@ -35,11 +49,14 @@
   (string-trim '(#\Space #\Tab #\Newline) (xpath:string-value nodeset)))
 
 (defun make-article-content-element (heise-url)
-  (ignore-errors
-   (let ((element (stp:make-element "content" "http://www.w3.org/2005/Atom")))
-     (setf (stp:attribute-value element "type") "html")
-     (stp:append-child element (get-article (ppcre:regex-replace "^http://www.heise.de" heise-url "http://m.heise.de")))
-     element)))
+  (handler-case
+      (let ((element (stp:make-element "content" "http://www.w3.org/2005/Atom")))
+        (setf (stp:attribute-value element "type") "html")
+        (stp:append-child element (get-article (ppcre:regex-replace "^http://www.heise.de" heise-url "http://m.heise.de")))
+        element)
+    (error (e)
+      (format t "could not get content for ~A:~%~A~%" heise-url e)
+      nil)))
 
 (defun filtered-feed ()
   (with-article-cache-cleanup ()
