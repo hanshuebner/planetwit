@@ -17,6 +17,9 @@
                               (error "could not find content div in ~S" url)))))
       (mapcar (alexandria:rcurry #'stp:delete-child content)
               (xpath:all-nodes (xpath:evaluate "div[@class='tt_news-category']/preceding-sibling::*/following-sibling::*" content)))
+      (stp:do-recursively (child content)
+        (when (typep child 'stp:element)
+          (ff:substitute-attribute-url child "src" "^" "http://www.titanic.de/")))
       (remove-xml-preamble 
        (stp:serialize (stp:make-document (stp:copy content)) (cxml:make-string-sink))))))
 
@@ -28,7 +31,7 @@
 
 (defun filtered-feed ()
   (ff:with-article-cache-cleanup ()
-    (let ((feed (ff:get-feed *rss-url*)))
+    (let ((feed (ff:get-feed *rss-url* "http://netzhansa.com/titanic-rss")))
       (xpath:with-namespaces (("atom" "http://www.w3.org/2005/Atom"))
         (xpath:do-node-set (item (xpath:evaluate "/rss/channel/item" feed))
           (let ((description (xpath:first-node (xpath:evaluate "description" item))))
@@ -36,7 +39,7 @@
             (stp:append-child description (stp:make-text (get-article (xpath:string-value (xpath:evaluate "link" item))))))))
       (stp:serialize feed (cxml:make-string-sink)))))
 
-(hunchentoot:define-easy-handler (heise-atom :uri "/titanic-rss")
+(hunchentoot:define-easy-handler (titanic-rss :uri "/titanic-rss")
     ()
   (setf (hunchentoot:content-type*) "application/xml")
   (filtered-feed))

@@ -35,11 +35,16 @@
   (alexandria:when-let (url (stp:attribute-value element attribute-name))
     (setf (stp:attribute-value element attribute-name) (ppcre:regex-replace from url to))))
 
-(defun get-feed (url)
-  (cxml:parse (drakma:http-request url) (stp:make-builder)))
+(defun get-feed (url new-location)
+  (let ((feed (cxml:parse (drakma:http-request url) (stp:make-builder))))
+    (xpath:with-namespaces ((nil "http://www.w3.org/2005/Atom"))
+      (setf (stp:attribute-value (xpath:first-node (xpath:evaluate "//link[@rel='self']" feed)) "href")
+            new-location))
+    feed))
 
 (defun get-article (url)
   (chtml:parse (ppcre:regex-replace-all "\\s*(\\r|&#13;)\\n?" (request-article url) " ") (stp:make-builder)))
 
 (defun stripped-string-value (nodeset)
   (string-trim '(#\Space #\Tab #\Newline) (xpath:string-value nodeset)))
+

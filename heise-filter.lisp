@@ -36,11 +36,9 @@
 
 (defun filtered-feed ()
   (ff:with-article-cache-cleanup ()
-    (let* ((feed (ff:get-feed *feed-url*))
+    (let* ((feed (ff:get-feed *feed-url* "http://netzhansa.com/heise-atom"))
            (root (stp:first-child feed)))
       (xpath:with-namespaces ((nil "http://www.w3.org/2005/Atom"))
-        (setf (stp:attribute-value (xpath:first-node (xpath:evaluate "/feed/link[@rel='self']" feed)) "href")
-              "http://netzhansa.com/heise-atom")
         (xpath:do-node-set (entry (xpath:evaluate "/feed/entry" feed))
           (cond
             ((blacklisted-author-p (ff:stripped-string-value (xpath:evaluate "author" entry)))
