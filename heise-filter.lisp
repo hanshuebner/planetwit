@@ -21,16 +21,11 @@
 (defun preprocess-article-url (url)
   (ppcre:regex-replace "^http://www.heise.de" url "http://m.heise.de"))
 
-(defun get-feed ()
-  (ff:filtered-feed :type :atom
-                    :feed-url "http://www.heise.de/tp/news-atom.xml"
-                    :replacement-url "http://netzhansa.com/heise-atom"
-                    :article-content-xpath "/html/body/div/div[@id='content']"
-                    :preprocess-article-url #'preprocess-article-url
-                    :include-item #'include-item
-                    :postprocess-article #'postprocess-article))
+(ff:define-feed telepolis
+  :type :atom
+  :feed-url "http://www.heise.de/tp/news-atom.xml"
+  :article-content-xpath "/html/body/div/div[@id='content']"
+  :preprocess-article-url #'preprocess-article-url
+  :include-item #'include-item
+  :postprocess-article #'postprocess-article)
 
-(hunchentoot:define-easy-handler (heise-atom :uri "/heise-atom")
-    ()
-  (setf (hunchentoot:content-type*) "application/xml")
-  (get-feed))

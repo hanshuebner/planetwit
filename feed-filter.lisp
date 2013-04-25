@@ -11,7 +11,8 @@
            #:stripped-string-value 
            #:delete-nodes
            #:rewrite-urls
-           #:filtered-feed))
+           #:filtered-feed
+           #:define-feed))
 
 (in-package :feed-filter)
 
@@ -113,3 +114,8 @@
     (when (typep child 'stp:element)
       (ff:substitute-attribute-url child attribute-name regexp replacement)))
   content)
+
+(defmacro define-feed (name &rest args)
+  `(hunchentoot:define-easy-handler (,name :uri ,(format nil "/feed/~(~A~)" name)) ()
+     (filtered-feed :replacement-url ,(format nil "http://netzhansa.com/feed/~(~A~)" name)
+                    ,@args)))
