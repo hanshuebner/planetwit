@@ -20,7 +20,7 @@
       (stp:delete-child (xpath:first-node (xpath:evaluate "div[@class='tt_news-category']" content)) content)
       (stp:do-recursively (child content)
         (when (typep child 'stp:element)
-          (ff:substitute-attribute-url child "src" "^" "http://www.titanic.de/")))
+          (ff:substitute-attribute-url child "src" "^" "http://www.titanic-magazin.de/")))
       (remove-xml-preamble 
        (stp:serialize (stp:make-document (stp:copy content)) (cxml:make-string-sink))))))
 
