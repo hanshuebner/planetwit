@@ -9,4 +9,5 @@
   :components ((:file "planetwit")
                (:file "feed-filter")
                (:file "heise-filter")
-               (:file "titanic-filter")))
+               (:file "titanic-filter")
+               (:file "faz-filter")))
