@@ -62,8 +62,8 @@
                         (include-item #'identity)
                         (postprocess-article #'identity))
   (check-type type (member :atom :rss2.0))
-  (ff:with-article-cache-cleanup ()
-    (let ((feed (ff:get-feed feed-url replacement-url)))
+  (with-article-cache-cleanup ()
+    (let ((feed (get-feed feed-url replacement-url)))
       (xpath:with-namespaces (((unless (eql type :atom) "atom") "http://www.w3.org/2005/Atom"))
         (xpath:do-node-set (item (xpath:evaluate (ecase type
                                                    (:atom "/feed/entry")
@@ -103,10 +103,17 @@
     (stp:delete-child node (stp:parent node)))
   content)
 
+(defun delete-attributes (content attribute-name)
+  (stp:do-recursively (child content)
+    (when (typep child 'stp:element)
+      (alexandria:when-let (attribute (stp:find-attribute-named child attribute-name))
+        (stp:remove-attribute child attribute))))
+  content)
+
 (defun rewrite-attributes (content attribute-name regexp replacement)
   (stp:do-recursively (child content)
     (when (typep child 'stp:element)
-      (ff:substitute-attribute-url child attribute-name regexp replacement)))
+      (substitute-attribute-url child attribute-name regexp replacement)))
   content)
 
 (defmacro define-feed (name &rest args)
