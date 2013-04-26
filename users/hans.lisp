@@ -38,3 +38,7 @@
                     (delete-nodes "div[@id='comments']")
                     (delete-nodes "script")
                     (delete-nodes "div/div[@id='related-products']/..")))
+
+(define-feed :rss2.0 arstechnica "http://feeds.arstechnica.com/arstechnica/index"
+  :article-xpath "/html/body/div/section/article[@class='standalone']"
+  :html5-p t)

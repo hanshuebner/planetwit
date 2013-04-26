@@ -5,6 +5,8 @@
                :drakma
                :cl-oauth
                :cxml-stp
-               :closure-html)
+               :closure-html
+               :cl-html5-parser)
   :components ((:file "planetwit")
+               (:file "html5-stp")
                (:file "feed-filter")))
