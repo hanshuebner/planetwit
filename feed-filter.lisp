@@ -6,7 +6,8 @@
   (:export #:define-feed
            #:delete-nodes
            #:delete-attributes
-           #:rewrite-attributes))
+           #:rewrite-attributes
+           #:stripped-string-value))
 
 (in-package :feed-filter)
 
