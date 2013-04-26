@@ -11,19 +11,43 @@
 
 (in-package :feed-filter)
 
-(defvar *article-cache* (make-hash-table :test #'equal))
-(defvar *next-cache*)
+(defclass feed ()
+  ((article-cache :initform (make-hash-table :test #'equal)
+                  :accessor article-cache)
+   (next-cache :initform nil
+               :accessor next-cache)
+   (url :initform (error "missing :url argument")
+        :initarg :url
+        :reader url)
+   (replacement-url :initform (error "missing :replacement-url argument")
+                    :initarg :replacement-url
+                    :reader replacement-url)
+   (article-content-xpath :initarg :article-content-xpath
+                          :reader article-content-xpath)
+   (preprocess-article-url :initarg :preprocess-article-url
+                           :reader preprocess-article-url)
+   (include-item :initarg :include-item
+                 :reader include-item)
+   (process-article :initarg :process-article
+                    :reader process-article))
+  (:default-initargs
+   :article-content-xpath "/"
+   :preprocess-article-url #'identity
+   :include-item #'identity
+   :process-article #'identity))
 
-(defun request-article (url)
-  (setf (gethash url (if (boundp '*next-cache*) *next-cache* *article-cache*))
-        (or (gethash url *article-cache*)
+(defun request-article (feed url)
+  (setf (gethash url (or (next-cache feed) (article-cache feed)))
+        (or (gethash url (article-cache feed))
             (drakma:http-request url))))
 
-(defmacro with-article-cache-cleanup (() &body body)
-  `(let ((*next-cache* (make-hash-table :test #'equal)))
-     (prog1
-         (progn ,@body)
-       (setf *article-cache* *next-cache*))))
+(defgeneric filtered (feed)
+  (:method :around ((feed feed))
+    (setf (next-cache feed) (make-hash-table :test #'equal))
+    (prog1
+        (call-next-method)
+      (setf (article-cache feed) (next-cache feed)
+            (next-cache feed) nil))))
 
 (defun delete-matching-elements (element xpath)
   (xpath:do-node-set (element (xpath:evaluate xpath element))
@@ -33,69 +57,85 @@
   (alexandria:when-let (url (stp:attribute-value element attribute-name))
     (setf (stp:attribute-value element attribute-name) (ppcre:regex-replace from url to))))
 
-(defun get-feed (url new-location)
-  (let ((feed (cxml:parse (drakma:http-request url) (stp:make-builder))))
-    (xpath:with-namespaces ((nil "http://www.w3.org/2005/Atom"))
-      (setf (stp:attribute-value (xpath:first-node (xpath:evaluate "//link[@rel='self']" feed)) "href")
-            new-location))
-    feed))
+(defun get-content (feed)
+  (cxml:parse (drakma:http-request (url feed)) (stp:make-builder)))
 
 (defun stripped-string-value (nodeset)
   (string-trim '(#\Space #\Tab #\Newline) (xpath:string-value nodeset)))
+
+(defun remove-xml-preamble (string)
+  (cl-ppcre:regex-replace "^<\\?xml version=\"1\\.0\" encoding=\"UTF-8\"\\?>\\n" string ""))
 
 (defun make-entity-encoded-article-string (content)
   (remove-xml-preamble 
    (stp:serialize (stp:make-document (stp:copy content)) (cxml:make-string-sink))))
 
-(defun get-article (url &key (article-content-xpath "/") (postprocess-article #'identity))
+(defun get-article (feed url)
   (xpath:with-namespaces ((nil "http://www.w3.org/1999/xhtml"))
-    (funcall postprocess-article
-             (or (xpath:first-node (xpath:evaluate article-content-xpath
-                                                   (chtml:parse (ppcre:regex-replace-all "\\s*(\\r|&#13;)\\n?" (request-article url) " ") (stp:make-builder))))
+    (funcall (process-article feed)
+             (or (xpath:first-node (xpath:evaluate (article-content-xpath feed)
+                                                   (chtml:parse (ppcre:regex-replace-all "\\s*(\\r|&#13;)\\n?" (request-article feed url) " ") (stp:make-builder))))
                  (error "could not find content div in ~S" url)))))
 
-(defun filtered-feed (&key
-                        type
-                        feed-url
-                        replacement-url
-                        article-content-xpath
-                        (preprocess-article-url #'identity)
-                        (include-item #'identity)
-                        (postprocess-article #'identity))
-  (check-type type (member :atom :rss2.0))
-  (with-article-cache-cleanup ()
-    (let ((feed (get-feed feed-url replacement-url)))
-      (xpath:with-namespaces (((unless (eql type :atom) "atom") "http://www.w3.org/2005/Atom"))
-        (xpath:do-node-set (item (xpath:evaluate (ecase type
-                                                   (:atom "/feed/entry")
-                                                   (:rss2.0 "/rss/channel/item"))
-                                                 feed))
-          (if (funcall include-item item)
-              (let* ((content-element-name (ecase type
-                                             (:atom "content")
-                                             (:rss2.0 "description")))
-                     (description (or (xpath:first-node (xpath:evaluate content-element-name item))
-                                      (let ((element (stp:make-element content-element-name (when (eql type :atom) "http://www.w3.org/2005/Atom"))))
-                                        (stp:append-child item element)
-                                        element)))
-                     (article (get-article (funcall preprocess-article-url
-                                                    (ecase type
-                                                      (:atom (stp:attribute-value (xpath:first-node (xpath:evaluate "link" item)) "href"))
-                                                      (:rss2.0 (xpath:string-value (xpath:evaluate "link" item)))))
-                                           :article-content-xpath article-content-xpath
-                                           :postprocess-article postprocess-article)))
-                (stp:delete-children description)
-                (stp:append-child description (ecase type
-                                                (:atom
-                                                 (setf (stp:attribute-value description "type") "html")
-                                                 (stp:copy article))
-                                                (:rss2.0
-                                                 (stp:make-text (make-entity-encoded-article-string article))))))
-              (stp:delete-child item (stp:parent item))))
-        (stp:serialize feed (cxml:make-string-sink))))))
+(defclass atom-feed (feed)
+  ())
 
-(defun remove-xml-preamble (string)
-  (cl-ppcre:regex-replace "^<\\?xml version=\"1\\.0\" encoding=\"UTF-8\"\\?>\\n" string ""))
+(defclass rss2.0-feed (feed)
+  ())
+
+(defgeneric namespace (feed)
+  (:method ((feed atom-feed))
+    "http://www.w3.org/2005/Atom")
+  (:method ((feed rss2.0-feed))
+    nil))
+
+(defgeneric atom-namespace-alias (feed)
+  (:method ((feed t))
+    "atom")
+  (:method ((feed atom-feed))
+    nil))
+
+(defgeneric content-element-name (feed)
+  (:method ((feed atom-feed))
+    "content")
+  (:method ((feed rss2.0-feed))
+    "description"))
+
+(defgeneric item-xpath (feed)
+  (:method ((feed atom-feed))
+    "/feed/entry")
+  (:method ((feed rss2.0-feed))
+    "/rss/channel/item"))
+
+(defgeneric item-link (feed item)
+  (:method ((feed atom-feed) item)
+    (stp:attribute-value (xpath:first-node (xpath:evaluate "link" item)) "href"))
+  (:method ((feed rss2.0-feed) item)
+    (xpath:string-value (xpath:evaluate "link" item))))
+
+(defgeneric set-content (feed content-element article)
+  (:method ((feed atom-feed) content-element article)
+    (setf (stp:attribute-value content-element "type") "html")
+    (stp:append-child content-element (stp:copy article)))
+  (:method ((feed rss2.0-feed) content-element article)
+    (stp:append-child content-element (stp:make-text (make-entity-encoded-article-string article)))))
+
+(defmethod filtered (feed)
+  (let ((feed-content (get-content feed)))
+    (xpath:with-namespaces ((nil "http://www.w3.org/2005/Atom"))
+      (setf (stp:attribute-value (xpath:first-node (xpath:evaluate "//link[@rel='self']" feed-content)) "href")
+            (replacement-url feed)))
+    (xpath:with-namespaces (((atom-namespace-alias feed) "http://www.w3.org/2005/Atom"))
+      (xpath:do-node-set (item (xpath:evaluate (item-xpath feed) feed-content))
+        (if (funcall (include-item feed) item)
+            (let ((content-element (or (xpath:first-node (xpath:evaluate (content-element-name feed) item))
+                                       (let ((element (stp:make-element (content-element-name feed) (namespace feed))))
+                                         (stp:append-child item element)
+                                         element))))
+              (stp:delete-children content-element)
+              (set-content feed content-element (get-article feed (funcall (preprocess-article-url feed) (item-link feed item)))))
+            (stp:delete-child item (stp:parent item))))
+      (stp:serialize feed-content (cxml:make-string-sink)))))
 
 (defun delete-nodes (content xpath)
   (dolist (node (xpath:all-nodes (xpath:evaluate xpath content)))
@@ -115,8 +155,30 @@
       (substitute-attribute-url child attribute-name regexp replacement)))
   content)
 
-(defmacro define-feed (name &rest args)
-  `(hunchentoot:define-easy-handler (,name :uri ,(format nil "/feed/~(~A~)" name)) ()
-     (setf (hunchentoot:content-type*) "application/xml")
-     (filtered-feed :replacement-url ,(format nil "http://netzhansa.com/feed/~(~A~)" name)
-                    ,@args)))
+(defvar *feeds* (make-hash-table :test #'equal))
+
+(defmacro define-feed (type
+                       name
+                       url
+                       &rest args
+                       &key
+                         article-content-xpath
+                         preprocess-article-url
+                         include-item
+                         process-article)
+  (declare (ignore article-content-xpath preprocess-article-url include-item process-article))
+  (setf (gethash name *feeds*) (apply
+                                #'make-instance
+                                (ecase type
+                                  (:atom 'atom-feed)
+                                  (:rss2.0 'rss2.0-feed))
+                                :allow-other-keys t
+                                :url url
+                                :replacement-url (format nil "http://netzhansa.com/feed/~(~A~)" name)
+                                args)))
+
+(defun handler ()
+  (setf (hunchentoot:content-type*) "application/xml")
+  #+(or)
+  (filtered-feed :replacement-url ,
+                 ,@args))
