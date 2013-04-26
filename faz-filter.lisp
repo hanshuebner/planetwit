@@ -14,7 +14,7 @@
   (ff:delete-nodes content "//script")
   (ff:rewrite-urls content "src" "^" "http://faz.net/")
   (ff:delete-attributes content "onclick")
-  (ff:delete-attributes content "itemprop")
+  (ff:delete-attributes content "itemprop"))
   
 
 (ff:define-feed faz-feuilleton
