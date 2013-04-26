@@ -3,16 +3,10 @@
 (defpackage :feed-filter
   (:use :cl)
   (:nicknames :ff)
-  (:export #:request-article
-           #:with-article-cache-cleanup
-           #:delete-matching-elements
-           #:substitute-attribute-url
-           #:get-feed 
-           #:stripped-string-value 
+  (:export #:define-feed
            #:delete-nodes
-           #:rewrite-urls
-           #:filtered-feed
-           #:define-feed))
+           #:delete-attributes
+           #:rewrite-attributes))
 
 (in-package :feed-filter)
 
@@ -109,7 +103,7 @@
     (stp:delete-child node (stp:parent node)))
   content)
 
-(defun rewrite-urls (content attribute-name regexp replacement)
+(defun rewrite-attributes (content attribute-name regexp replacement)
   (stp:do-recursively (child content)
     (when (typep child 'stp:element)
       (ff:substitute-attribute-url child attribute-name regexp replacement)))
