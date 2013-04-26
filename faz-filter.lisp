@@ -12,7 +12,7 @@
   (ff:delete-nodes content "div/div[@class='ArtikelFooter']")
   (ff:delete-nodes content "//iframe")
   (ff:delete-nodes content "//script")
-  (ff:rewrite-urls content "src" "^" "http://faz.net/")
+  (ff:rewrite-attributes content "src" "^" "http://faz.net/")
   (ff:delete-attributes content "onclick")
   (ff:delete-attributes content "itemprop"))
   
