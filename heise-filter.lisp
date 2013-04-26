@@ -8,9 +8,9 @@
 (defun postprocess-article (content)
   (ff:delete-matching-elements content "/p[@class='author_date']")
   (ff:delete-matching-elements content "/h1")
-  (ff:rewrite-urls content "href" "^/" "http://www.heise.de/")
-  (ff:rewrite-urls content "src" "^/" "http://www.heise.de/")
-  (ff:rewrite-urls content "src" "^http://www.heise.de/resize/" "http://www.heise.de/"))
+  (ff:rewrite-attributes content "href" "^/" "http://www.heise.de/")
+  (ff:rewrite-attributes content "src" "^/" "http://www.heise.de/")
+  (ff:rewrite-attributes content "src" "^http://www.heise.de/resize/" "http://www.heise.de/"))
 
 (defun blacklisted-author-p (name)
   (member name '("Peter Mühlbauer") :test #'string=))

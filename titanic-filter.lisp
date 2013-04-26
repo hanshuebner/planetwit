@@ -8,7 +8,7 @@
 (defun postprocess-article (content)
   (ff:delete-nodes content "div[@class='tt_news-category']/following-sibling::*")
   (ff:delete-nodes content "div[@class='tt_news-category']")
-  (ff:rewrite-urls content "src" "^" "http://www.titanic-magazin.de/"))
+  (ff:rewrite-attributes content "src" "^" "http://www.titanic-magazin.de/"))
 
 (ff:define-feed titanic
   :type :rss2.0
