@@ -22,8 +22,8 @@
    (replacement-url :initform (error "missing :replacement-url argument")
                     :initarg :replacement-url
                     :reader replacement-url)
-   (article-content-xpath :initarg :article-content-xpath
-                          :reader article-content-xpath)
+   (article-xpath :initarg :article-xpath
+                  :reader article-xpath)
    (preprocess-article-url :initarg :preprocess-article-url
                            :reader preprocess-article-url)
    (include-item :initarg :include-item
@@ -31,7 +31,7 @@
    (process-article :initarg :process-article
                     :reader process-article))
   (:default-initargs
-   :article-content-xpath "/"
+   :article-xpath "/"
    :preprocess-article-url #'identity
    :include-item #'identity
    :process-article #'identity))
@@ -70,12 +70,14 @@
   (remove-xml-preamble 
    (stp:serialize (stp:make-document (stp:copy content)) (cxml:make-string-sink))))
 
+(defvar *content*)
+
 (defun get-article (feed url)
   (xpath:with-namespaces ((nil "http://www.w3.org/1999/xhtml"))
-    (funcall (process-article feed)
-             (or (xpath:first-node (xpath:evaluate (article-content-xpath feed)
-                                                   (chtml:parse (ppcre:regex-replace-all "\\s*(\\r|&#13;)\\n?" (request-article feed url) " ") (stp:make-builder))))
-                 (error "could not find content div in ~S" url)))))
+    (let ((*content* (or (xpath:first-node (xpath:evaluate (article-xpath feed)
+                                                           (chtml:parse (ppcre:regex-replace-all "\\s*(\\r|&#13;)\\n?" (request-article feed url) " ") (stp:make-builder))))
+                         (error "could not find content div in ~S" url))))
+      (funcall (process-article feed)))))
 
 (defclass atom-feed (feed)
   ())
@@ -133,27 +135,27 @@
                                          (stp:append-child item element)
                                          element))))
               (stp:delete-children content-element)
-              (set-content feed content-element (get-article feed (funcall (preprocess-article-url feed) (item-link feed item)))))
+              (set-content feed content-element
+                           (get-article feed (funcall (preprocess-article-url feed) (item-link feed item)))))
             (stp:delete-child item (stp:parent item))))
       (stp:serialize feed-content (cxml:make-string-sink)))))
 
-(defun delete-nodes (content xpath)
-  (dolist (node (xpath:all-nodes (xpath:evaluate xpath content)))
-    (stp:delete-child node (stp:parent node)))
-  content)
+;; Article content editing
 
-(defun delete-attributes (content attribute-name)
-  (stp:do-recursively (child content)
+(defun delete-nodes (xpath)
+  (dolist (node (xpath:all-nodes (xpath:evaluate xpath *content*)))
+    (stp:delete-child node (stp:parent node))))
+
+(defun delete-attributes (attribute-name)
+  (stp:do-recursively (child *content*)
     (when (typep child 'stp:element)
       (alexandria:when-let (attribute (stp:find-attribute-named child attribute-name))
-        (stp:remove-attribute child attribute))))
-  content)
+        (stp:remove-attribute child attribute)))))
 
-(defun rewrite-attributes (content attribute-name regexp replacement)
-  (stp:do-recursively (child content)
+(defun rewrite-attributes (attribute-name regexp replacement)
+  (stp:do-recursively (child *content*)
     (when (typep child 'stp:element)
-      (substitute-attribute-url child attribute-name regexp replacement)))
-  content)
+      (substitute-attribute-url child attribute-name regexp replacement))))
 
 (defvar *feeds* (make-hash-table :test #'equal))
 
@@ -162,19 +164,20 @@
                        url
                        &rest args
                        &key
-                         article-content-xpath
+                         article-xpath
                          preprocess-article-url
                          include-item
                          process-article)
-  (declare (ignore article-content-xpath preprocess-article-url include-item process-article))
+  (declare (ignore article-xpath preprocess-article-url include-item))
   (setf (gethash name *feeds*) (apply
                                 #'make-instance
                                 (ecase type
                                   (:atom 'atom-feed)
                                   (:rss2.0 'rss2.0-feed))
-                                :allow-other-keys t
                                 :url url
                                 :replacement-url (format nil "http://netzhansa.com/feed/~(~A~)" name)
+                                :process-article (compile nil `(lambda () ,@process-article))
+                                :allow-other-keys t
                                 args)))
 
 (defun handler ()
