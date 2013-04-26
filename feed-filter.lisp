@@ -92,10 +92,8 @@
                 (stp:delete-children description)
                 (stp:append-child description (ecase type
                                                 (:atom
-                                                 (let ((element (stp:make-element "content" "http://www.w3.org/2005/Atom")))
-                                                   (setf (stp:attribute-value element "type") "html")
-                                                   (stp:append-child element (stp:copy article))
-                                                   element))
+                                                 (setf (stp:attribute-value description "type") "html")
+                                                 (stp:copy article))
                                                 (:rss2.0
                                                  (stp:make-text (make-entity-encoded-article-string article))))))
               (stp:delete-child item (stp:parent item))))
@@ -117,5 +115,6 @@
 
 (defmacro define-feed (name &rest args)
   `(hunchentoot:define-easy-handler (,name :uri ,(format nil "/feed/~(~A~)" name)) ()
+     (setf (hunchentoot:content-type*) "application/xml")
      (filtered-feed :replacement-url ,(format nil "http://netzhansa.com/feed/~(~A~)" name)
                     ,@args)))
