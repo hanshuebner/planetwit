@@ -46,7 +46,8 @@
       (read f))))
 
 (defvar *twitter-access-token*)
-(load "access-token.lisp")
+(alexandria:when-let (file (probe-file "access-token.lisp"))
+  (load file))
 
 (defparameter *twitter-url* "https://api.twitter.com/1/statuses/update.xml")
 
