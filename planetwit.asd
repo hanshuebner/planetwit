@@ -7,7 +7,4 @@
                :cxml-stp
                :closure-html)
   :components ((:file "planetwit")
-               (:file "feed-filter")
-               (:file "heise-filter")
-               (:file "titanic-filter")
-               (:file "faz-filter")))
+               (:file "feed-filter")))

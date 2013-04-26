@@ -77,7 +77,8 @@
     (let ((*content* (or (xpath:first-node (xpath:evaluate (article-xpath feed)
                                                            (chtml:parse (ppcre:regex-replace-all "\\s*(\\r|&#13;)\\n?" (request-article feed url) " ") (stp:make-builder))))
                          (error "could not find content div in ~S" url))))
-      (funcall (process-article feed)))))
+      (funcall (process-article feed))
+      *content*)))
 
 (defclass atom-feed (feed)
   ())
@@ -157,31 +158,45 @@
     (when (typep child 'stp:element)
       (substitute-attribute-url child attribute-name regexp replacement))))
 
-(defvar *feeds* (make-hash-table :test #'equal))
-
 (defmacro define-feed (type
                        name
                        url
-                       &rest args
                        &key
                          article-xpath
-                         preprocess-article-url
-                         include-item
-                         process-article)
-  (declare (ignore article-xpath preprocess-article-url include-item))
-  (setf (gethash name *feeds*) (apply
-                                #'make-instance
-                                (ecase type
-                                  (:atom 'atom-feed)
-                                  (:rss2.0 'rss2.0-feed))
-                                :url url
-                                :replacement-url (format nil "http://netzhansa.com/feed/~(~A~)" name)
-                                :process-article (compile nil `(lambda () ,@process-article))
-                                :allow-other-keys t
-                                args)))
+                         (preprocess-article-url (lambda (url) url))
+                         (include-item (lambda () t))
+                         (process-article nil))
+  (let ((name (string-downcase name)))
+    (setf (gethash name *feeds*) (make-instance
+                                  (ecase type
+                                    (:atom 'atom-feed)
+                                    (:rss2.0 'rss2.0-feed))
+                                  :url url
+                                  :replacement-url (format nil "http://netzhansa.com/feed/~(~A~)" name)
+                                  :article-xpath article-xpath
+                                  :preprocess-article-url (compile nil preprocess-article-url)
+                                  :include-item (compile nil include-item)
+                                  :process-article (compile nil `(lambda () ,@process-article))))))
 
-(defun handler ()
-  (setf (hunchentoot:content-type*) "application/xml")
-  #+(or)
-  (filtered-feed :replacement-url ,
-                 ,@args))
+(defvar *users* (make-hash-table :test #'equal))
+
+(defun load-feeds (&key (directory "users/"))
+  (dolist (feed-definition-file (directory (merge-pathnames "*.lisp" directory)))
+    (let* ((user-name (pathname-name feed-definition-file))
+           (*package* (or (find-package (string-upcase user-name))
+                          (make-package (string-upcase user-name)
+                                        :use '(:cl :feed-filter))))
+           ;; fixme: user feeds never deleted
+           (*feeds* (or (gethash user-name *users*)
+                        (setf (gethash user-name *users*) (make-hash-table :test #'equal)))))
+      (load (compile-file feed-definition-file)))))
+
+(defun dispatch-feed-handlers (request)
+  (ppcre:register-groups-bind (user-name feed-name) ("/feed/(.*)/(.*)$" (hunchentoot:script-name request))
+    (alexandria:when-let (feeds (gethash user-name *users*))
+      (alexandria:when-let (feed (gethash feed-name feeds))
+        (setf (hunchentoot:content-type*) "application/xml")
+        (lambda (&key) (filtered feed))))))
+
+(pushnew 'dispatch-feed-handlers hunchentoot:*dispatch-table*)
+

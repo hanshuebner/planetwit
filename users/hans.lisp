@@ -1,10 +1,5 @@
 ;; -*- Lisp -*-
 
-(defpackage :feeds
-  (:use :cl :ff))
-
-(in-package :feeds)
-
 (define-feed :rss2.0 titanic "http://www.titanic-magazin.de/ich.war.bei.der.waffen.rss" 
   :article-xpath "/html/body/div[@id='page']//div[@class='tt_news-bodytext']"
   :process-article ((delete-nodes "div[@class='tt_news-category']/following-sibling::*")
