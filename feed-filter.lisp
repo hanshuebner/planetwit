@@ -203,17 +203,27 @@
                         (setf (gethash user-name *users*) (make-hash-table :test #'equal)))))
       (load (compile-file feed-definition-file)))))
 
+(defun find-feed (user-name feed-name)
+  (alexandria:when-let (feeds (gethash user-name *users*))
+    (gethash feed-name feeds)))
+
 (defun dispatch-feed-handlers (request)
-  (load-feeds)
+  (time (load-feeds))
   (ppcre:register-groups-bind (user-name feed-name) ("/feed/(.*)/(.*)$" (hunchentoot:script-name request))
-    (alexandria:when-let (feeds (gethash user-name *users*))
-      (alexandria:when-let (feed (gethash feed-name feeds))
-        (setf (hunchentoot:content-type*) "application/xml")
-        (lambda (&key) (filtered feed))))))
+    (alexandria:when-let (feed (find-feed user-name feed-name))
+      (setf (hunchentoot:content-type*) "application/xml")
+      (time (lambda (&key) (filtered feed))))))
 
 (pushnew 'dispatch-feed-handlers hunchentoot:*dispatch-table*)
 
-(defun start-server (&key (port 9292))
-  (hunchentoot:start (make-instance 'hunchentoot:easy-acceptor
-                                    :port port
-                                    :taskmaster (make-instance 'hunchentoot:single-threaded-taskmaster))))
+(defvar *server* nil)
+
+(defun start-server (&key (port 9292) (single-threaded-p nil))
+  (when *server*
+    (hunchentoot:stop *server*)
+    (setf *server* nil))
+  (setf *server* (hunchentoot:start (make-instance 'hunchentoot:easy-acceptor
+                                                   :port port
+                                                   :taskmaster (make-instance (if single-threaded-p
+                                                                                  'hunchentoot:single-threaded-taskmaster
+                                                                                  'hunchentoot:one-thread-per-connection-taskmaster))))))
