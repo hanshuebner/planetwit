@@ -166,7 +166,7 @@
 
 (defgeneric content-element (feed item)
   (:method ((feed atom-feed) item)
-    (ensure-child-element item "content" (namespace feed)))
+    (ensure-child item "content" (namespace feed)))
   (:method ((feed rss2.0-feed) item)
     (or (find-child item "encoded" "http://purl.org/rss/1.0/modules/content/")
         (ensure-child item "description" nil))))
