@@ -208,11 +208,11 @@
     (gethash feed-name feeds)))
 
 (defun dispatch-feed-handlers (request)
-  (time (load-feeds))
+  (load-feeds)
   (ppcre:register-groups-bind (user-name feed-name) ("/feed/(.*)/(.*)$" (hunchentoot:script-name request))
     (alexandria:when-let (feed (find-feed user-name feed-name))
       (setf (hunchentoot:content-type*) "application/xml")
-      (time (lambda (&key) (filtered feed))))))
+      (lambda (&key) (filtered feed)))))
 
 (pushnew 'dispatch-feed-handlers hunchentoot:*dispatch-table*)
 
