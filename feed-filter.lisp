@@ -12,6 +12,54 @@
 
 (in-package :feed-filter)
 
+(defparameter *log-timestamp-print-format* '((:year 4) #\- (:month 2) #\- (:day 2) #\Space (:hour 2) #\: (:min 2) #\: (:sec 2)))
+
+(defvar *say-lock* (bt:make-lock))
+
+(defun say (format &rest args)
+  (bt:with-lock-held (*say-lock*)
+    (fresh-line)
+    (loop for prefix
+            = (local-time:format-timestring nil (local-time:now) :format *log-timestamp-print-format*)
+              then (format nil "~V,,,'.A" (length prefix) "\\")
+          for line in (cl-ppcre:split #\Newline (apply #'format nil format args))
+          unless (equal "" line)
+            do (write-string prefix)
+               (write-string ": ")
+               (write-string line)
+               (terpri))
+    (finish-output)))
+
+(defclass article-cache-entry ()
+  ((url :initarg :url
+        :reader url)
+   (requested :initform (local-time:now)
+              :reader requested)
+   (last-used :initform (local-time:now)
+              :reader last-used
+              :accessor last-used%)
+   (content :initarg :content
+             :reader content)))
+
+(defmethod print-object ((article-cache-entry article-cache-entry) stream)
+  (print-unreadable-object (article-cache-entry stream :type t :identity t)
+    (format stream "url ~A requested ~A last-used ~A"
+            (url article-cache-entry)
+            (requested article-cache-entry)
+            (last-used article-cache-entry))))
+
+(defmethod content :after ((article-cache-entry article-cache-entry))
+  (setf (last-used% article-cache-entry) (local-time:now)))
+
+(defvar *article-cache* (make-hash-table :test #'equal))
+
+(defun cached-get-article (url)
+  (content (or (gethash url *article-cache*)
+               (setf (gethash url *article-cache*)
+                     (make-instance 'article-cache-entry
+                                    :url url
+                                    :content (drakma:http-request url))))))
+
 (defclass feed ()
   ((article-cache :initform (make-hash-table :test #'equal)
                   :accessor article-cache)
@@ -38,11 +86,6 @@
    :preprocess-article-url #'identity
    :include-item #'identity
    :process-article #'identity))
-
-(defun request-article (feed url)
-  (setf (gethash url (or (next-cache feed) (article-cache feed)))
-        (or (gethash url (article-cache feed))
-            (drakma:http-request url))))
 
 (defgeneric filtered (feed)
   (:method :around ((feed feed))
@@ -77,14 +120,17 @@
 
 (defun get-article (feed url)
   (xpath:with-namespaces ((nil "http://www.w3.org/1999/xhtml"))
-    (let* ((article-html-text (ppcre:regex-replace-all "\\s*(\\r|&#13;)\\n?" (request-article feed url) " "))
+    (say "get-article ~A" url)
+    (let* ((article-html-text (ppcre:regex-replace-all "\\s*(\\r|&#13;)\\n?" (cached-get-article url) " "))
            (*content* (or (xpath:first-node (xpath:evaluate (article-xpath feed)
                                                             (if (html5-p feed)
                                                                 (html5-stp:parse article-html-text)
                                                                 (chtml:parse article-html-text (stp:make-builder)))))
                           (warn "could not find content div in ~S" url))))
+      (say "get-article process")
       (when *content*
         (funcall (process-article feed)))
+      (say "get-article done")
       *content*)))
 
 (defclass atom-feed (feed)
@@ -105,11 +151,25 @@
   (:method ((feed atom-feed))
     nil))
 
-(defgeneric content-element-name (feed)
-  (:method ((feed atom-feed))
-    "content")
-  (:method ((feed rss2.0-feed))
-    "description"))
+(defun find-child (item element-name namespace)
+  ;; xpath is overkill here
+  (if namespace
+      (xpath:with-namespaces ((nil namespace))
+        (xpath:first-node (xpath:evaluate element-name item)))
+      (xpath:first-node (xpath:evaluate element-name item))))
+
+(defun ensure-child (item element-name namespace)
+  (or (find-child item element-name namespace)
+      (let ((element (stp:make-element element-name namespace)))
+        (stp:append-child item element)
+        element)))
+
+(defgeneric content-element (feed item)
+  (:method ((feed atom-feed) item)
+    (ensure-child-element item "content" (namespace feed)))
+  (:method ((feed rss2.0-feed) item)
+    (or (find-child item "encoded" "http://purl.org/rss/1.0/modules/content/")
+        (ensure-child item "description" nil))))
 
 (defgeneric item-xpath (feed)
   (:method ((feed atom-feed))
@@ -140,10 +200,7 @@
       (xpath:do-node-set (item (xpath:evaluate (item-xpath feed) feed-content))
         (if (funcall (include-item feed) item)
             (alexandria:when-let (new-content (get-article feed (funcall (preprocess-article-url feed) (item-link feed item))))
-              (let ((content-element (or (xpath:first-node (xpath:evaluate (content-element-name feed) item))
-                                         (let ((element (stp:make-element (content-element-name feed) (namespace feed))))
-                                           (stp:append-child item element)
-                                           element))))
+              (let ((content-element (content-element feed item)))
                 (stp:delete-children content-element)
                 (set-content feed content-element new-content)))
             (stp:delete-child item (stp:parent item))))
@@ -155,11 +212,13 @@
   (dolist (node (xpath:all-nodes (xpath:evaluate xpath *content*)))
     (stp:delete-child node (stp:parent node))))
 
-(defun delete-attributes (attribute-name)
-  (stp:do-recursively (child *content*)
-    (when (typep child 'stp:element)
-      (alexandria:when-let (attribute (stp:find-attribute-named child attribute-name))
-        (stp:remove-attribute child attribute)))))
+(defun delete-attributes (attribute-regexp)
+  (let ((scanner (ppcre:create-scanner attribute-regexp)))
+    (stp:do-recursively (child *content*)
+      (when (typep child 'stp:element)
+        (dolist (attribute (stp:list-attributes child))
+          (when (ppcre:scan scanner (stp:local-name attribute))
+            (stp:remove-attribute child attribute)))))))
 
 (defun rewrite-attributes (attribute-name regexp replacement)
   (stp:do-recursively (child *content*)
@@ -167,6 +226,7 @@
       (substitute-attribute-url child attribute-name regexp replacement))))
 
 (defvar *feeds*)
+(defparameter *node-name* "jabberwock.netzhansa.com")
 
 (defmacro define-feed (type
                        name
@@ -183,7 +243,7 @@
                                     (:atom 'atom-feed)
                                     (:rss2.0 'rss2.0-feed))
                                   :url url
-                                  :replacement-url (format nil "http://netzhansa.com/feed/~(~A~)" name)
+                                  :replacement-url (format nil "http://~A/feed/~(~A~)" *node-name* name)
                                   :html5-p html5-p
                                   :article-xpath article-xpath
                                   :preprocess-article-url (compile nil preprocess-article-url)
