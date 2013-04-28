@@ -40,5 +40,12 @@
                     (delete-nodes "div/div[@id='related-products']/..")))
 
 (define-feed :rss2.0 arstechnica "http://feeds.arstechnica.com/arstechnica/index"
-  :article-xpath "/html/body/div/section/article[@class='standalone']"
-  :html5-p t)
+  :article-xpath "/html/body/div/section/article"
+  :html5-p t
+  :process-article ((delete-nodes "header/h1")
+                    (delete-nodes "header/div/div[@class='corner-info']")
+                    (delete-nodes "div[@id='article-footer-wrap']")
+                    (delete-nodes "//figure/figcaption/div[@class='caption-credit']")
+                    (delete-nodes "//iframe")
+                    (delete-nodes "//object")
+                    (delete-attributes "data-.*")))
