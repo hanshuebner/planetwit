@@ -49,3 +49,14 @@
                     (delete-nodes "//iframe")
                     (delete-nodes "//object")
                     (delete-attributes "data-.*")))
+
+(define-feed :rss2.0 taz-leben "http://www.taz.de/Leben/!p10;rss/"
+  :article-xpath "/html/body/div/div/div/div/span/div/div[@class='sectbody']"
+  :html5-p t
+  :process-article ((rewrite-attributes "href" "^/" "http://www.taz.de/")
+                    (rewrite-attributes "src" "^/" "http://www.taz.de/")
+                    (delete-nodes "div[@id='sectfoot']")
+                    (delete-nodes "div[@id='rack']")
+                    (delete-nodes "p[@class='caption']/span[@class='credit']")
+                    (delete-nodes "style")
+                    (delete-nodes "script")))
