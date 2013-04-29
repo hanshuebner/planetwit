@@ -125,13 +125,17 @@
 
 (defvar *content*)
 
+(defun get-article-content (feed article-html-text)
+  (xpath:first-node (xpath:evaluate (article-xpath feed)
+                                    (if (html5-p feed)
+                                        (html5-stp:parse article-html-text)
+                                        (chtml:parse article-html-text (stp:make-builder))))))
+
 (defun get-article (feed url)
-  (xpath:with-namespaces ((nil "http://www.w3.org/1999/xhtml"))
+  (xpath:with-namespaces ((nil "http://www.w3.org/1999/xhtml")
+                          ("xml" "http://www.w3.org/XML/1998/namespace"))
     (let* ((article-html-text (ppcre:regex-replace-all "\\s*(\\r|&#13;)\\n?" (cached-get-article url) " "))
-           (*content* (or (xpath:first-node (xpath:evaluate (article-xpath feed)
-                                                            (if (html5-p feed)
-                                                                (html5-stp:parse article-html-text)
-                                                                (chtml:parse article-html-text (stp:make-builder)))))
+           (*content* (or (get-article-content feed article-html-text)
                           (warn "could not find content div in ~S" url))))
       (when *content*
         (funcall (process-article feed)))
@@ -293,11 +297,11 @@
     (ensure-user (pathname-name feed-definition-file) feed-definition-file)))
 
 (defun find-feed (user-name feed-name)
+  (load-users)
   (alexandria:when-let (user (gethash user-name *users*))
     (gethash feed-name (feeds user))))
 
 (defun dispatch-feed-handlers (request)
-  (load-users)
   (when (ppcre:scan "^/feed/" (hunchentoot:script-name request))
     (or (ppcre:register-groups-bind (user-name feed-name) ("/feed/(.*)/(.*)$" (hunchentoot:script-name request))
           (alexandria:when-let (feed (find-feed user-name feed-name))

@@ -28,7 +28,10 @@
     (:element
      (let ((element (stp:make-element (html5-parser:node-name html5-node) (html5-parser:node-namespace html5-node))))
        (html5-parser:element-map-attributes (lambda (name namespace value)
-                                              (setf (stp:attribute-value element name namespace) value))
+                                              (unless (ppcre:scan "^xmlns(:|$)" name)
+                                                (when (ppcre:scan "^xml(:|$)" name)
+                                                  (setf namespace "http://www.w3.org/XML/1998/namespace"))
+                                                (setf (stp:attribute-value element name namespace) value)))
                                             html5-node)
        (html5-parser:element-map-children (alexandria:rcurry #'node-to-stp element) html5-node)
        (when parent
