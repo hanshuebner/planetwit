@@ -39,14 +39,17 @@
               :reader last-used
               :accessor last-used%)
    (content :initarg :content
-             :reader content)))
+            :reader content)))
 
 (defmethod print-object ((article-cache-entry article-cache-entry) stream)
   (print-unreadable-object (article-cache-entry stream :type t :identity t)
-    (format stream "url ~A requested ~A last-used ~A"
+    (format stream "url ~S requested ~A last-used ~A"
             (url article-cache-entry)
             (requested article-cache-entry)
             (last-used article-cache-entry))))
+
+(defmethod initialize-instance :after ((article-cache-entry article-cache-entry) &key url)
+  (say "cached article ~S" url))
 
 (defmethod content :after ((article-cache-entry article-cache-entry))
   (setf (last-used% article-cache-entry) (local-time:now)))
@@ -87,6 +90,10 @@
    :include-item #'identity
    :process-article #'identity))
 
+(defmethod print-object ((feed feed) stream)
+  (print-unreadable-object (feed stream :type t :identity t)
+    (format stream "url ~S" (url feed))))
+
 (defgeneric filtered (feed)
   (:method :around ((feed feed))
     (setf (next-cache feed) (make-hash-table :test #'equal))
@@ -120,17 +127,14 @@
 
 (defun get-article (feed url)
   (xpath:with-namespaces ((nil "http://www.w3.org/1999/xhtml"))
-    (say "get-article ~A" url)
     (let* ((article-html-text (ppcre:regex-replace-all "\\s*(\\r|&#13;)\\n?" (cached-get-article url) " "))
            (*content* (or (xpath:first-node (xpath:evaluate (article-xpath feed)
                                                             (if (html5-p feed)
                                                                 (html5-stp:parse article-html-text)
                                                                 (chtml:parse article-html-text (stp:make-builder)))))
                           (warn "could not find content div in ~S" url))))
-      (say "get-article process")
       (when *content*
         (funcall (process-article feed)))
-      (say "get-article done")
       *content*)))
 
 (defclass atom-feed (feed)
@@ -166,7 +170,7 @@
 
 (defgeneric content-element (feed item)
   (:method ((feed atom-feed) item)
-    (ensure-child-element item "content" (namespace feed)))
+    (ensure-child item "content" (namespace feed)))
   (:method ((feed rss2.0-feed) item)
     (or (find-child item "encoded" "http://purl.org/rss/1.0/modules/content/")
         (ensure-child item "description" nil))))
@@ -250,29 +254,58 @@
                                   :include-item (compile nil include-item)
                                   :process-article (compile nil `(lambda () ,@process-article))))))
 
+(defclass user ()
+  ((name :initarg :name
+         :reader name)
+   (feed-file-pathname :initarg :feed-file-pathname
+                       :reader feed-file-pathname)
+   (package :reader package*)
+   (feeds :initform (make-hash-table :test #'equal)
+          :reader feeds)
+   (feed-file-last-change :accessor feed-file-last-change)))
+
+(defmethod initialize-instance :after ((user user) &key)
+  (setf (slot-value user 'package) (make-package (string-upcase (name user)) :use '(:cl :feed-filter))))
+
+(defmethod print-object ((user user) stream)
+  (print-unreadable-object (user stream :type t :identity t)
+    (format stream "~A, ~D feed~:P" (name user) (hash-table-count (feeds user)))))
+
+(defun ensure-feeds (user)
+  (when (or (not (slot-boundp user 'feed-file-last-change))
+            (< (feed-file-last-change user) (file-write-date (feed-file-pathname user))))
+    (let ((*feeds* (feeds user))
+          (*package* (package* user)))
+      (load (compile-file (feed-file-pathname user))))
+    (setf (feed-file-last-change user) (file-write-date (feed-file-pathname user))))
+  user)
+
 (defvar *users* (make-hash-table :test #'equal))
 
-(defun load-feeds (&key (directory "users/"))
+(defun ensure-user (name feed-file-pathname)
+  (ensure-feeds (or (gethash name *users*)
+                    (setf (gethash name *users*) (make-instance 'user
+                                                                :name name
+                                                                :feed-file-pathname feed-file-pathname)))))
+
+(defun load-users (&key (directory "users/"))
   (dolist (feed-definition-file (directory (merge-pathnames "*.lisp" directory)))
-    (let* ((user-name (pathname-name feed-definition-file))
-           (*package* (or (find-package (string-upcase user-name))
-                          (make-package (string-upcase user-name)
-                                        :use '(:cl :feed-filter))))
-           ;; fixme: user feeds never deleted
-           (*feeds* (or (gethash user-name *users*)
-                        (setf (gethash user-name *users*) (make-hash-table :test #'equal)))))
-      (load (compile-file feed-definition-file)))))
+    (ensure-user (pathname-name feed-definition-file) feed-definition-file)))
 
 (defun find-feed (user-name feed-name)
-  (alexandria:when-let (feeds (gethash user-name *users*))
-    (gethash feed-name feeds)))
+  (alexandria:when-let (user (gethash user-name *users*))
+    (gethash feed-name (feeds user))))
 
 (defun dispatch-feed-handlers (request)
-  (load-feeds)
-  (ppcre:register-groups-bind (user-name feed-name) ("/feed/(.*)/(.*)$" (hunchentoot:script-name request))
-    (alexandria:when-let (feed (find-feed user-name feed-name))
-      (setf (hunchentoot:content-type*) "application/xml")
-      (lambda (&key) (filtered feed)))))
+  (load-users)
+  (when (ppcre:scan "^/feed/" (hunchentoot:script-name request))
+    (or (ppcre:register-groups-bind (user-name feed-name) ("/feed/(.*)/(.*)$" (hunchentoot:script-name request))
+          (alexandria:when-let (feed (find-feed user-name feed-name))
+            (setf (hunchentoot:content-type*) "application/xml")
+            (lambda (&key) (filtered feed))))
+        (lambda (&key)
+          (setf (hunchentoot:return-code*) hunchentoot:+http-not-found+)
+          (hunchentoot:abort-request-handler)))))
 
 (pushnew 'dispatch-feed-handlers hunchentoot:*dispatch-table*)
 
