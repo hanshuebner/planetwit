@@ -49,7 +49,7 @@
 (alexandria:when-let (file (probe-file "access-token.lisp"))
   (load file))
 
-(defparameter *twitter-url* "https://api.twitter.com/1/statuses/update.xml")
+(defparameter *twitter-url* "https://api.twitter.com/1.1/statuses/update.json")
 
 (defun post-to-twitter (item)
   (format t "post-to-twitter: ~S~%" item)
