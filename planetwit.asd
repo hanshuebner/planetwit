@@ -5,9 +5,5 @@
                :drakma
                :cl-oauth
                :cxml-stp
-               :closure-html
-               :cl-html5-parser
                :local-time)
-  :components ((:file "planetwit")
-               (:file "html5-stp")
-               (:file "feed-filter")))
+  :components ((:file "planetwit")))
